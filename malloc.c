@@ -153,7 +153,7 @@ static size_t shrinkBlock(BlockHeader *block, size_t alignedSize) {
 }
 
 /**
- * Get a block that fits size.
+ * Get a block that fits size and mark it as used.
  *
  * @param size the requested size.
  * @return a pointer to the Block with at least size bytes available
@@ -162,6 +162,7 @@ static BlockHeader *getBlock(size_t size) {
     size_t alignedSize = ALIGN_SIZE(size);
     BlockHeader *block = findFreeBlock(alignedSize);
     shrinkBlock(block, alignedSize);
+    block->size |= IN_USE_MASK;
     return block;
 }
 
@@ -207,13 +208,25 @@ static BlockHeader *resizeBlock(BlockHeader *block, size_t size) {
     return NULL;
 }
 
+void *my_malloc(size_t size) {
+    BlockHeader *block = getBlock(size);
+    if (block == NULL) return NULL;
+    return block->block;
+}
+
+void my_free(void *ptr) {
+    BlockHeader *block = (BlockHeader*)((uintptr_t)ptr - BLOCKHEADER_SIZE);
+    freeBlock(block);
+}
+
 /**
  * Print heap for debugging.
  */
+#ifdef DEBUG
 void printHeap() {
     BlockHeader *block = heap.begin;
 
     while (BLOCK_IN_RANGE(block)) {
-        
     }
 }
+#endif
