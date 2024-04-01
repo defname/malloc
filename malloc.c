@@ -254,6 +254,7 @@ void my_free(void *ptr) {
 
 /**
  * Print heap for debugging.
+ * Indicates if blocks are in used or free together with its size.
  */
 #ifdef DEBUG
 void printHeap() {
