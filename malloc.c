@@ -44,7 +44,7 @@
 #define NEW_SIZE(inUse, newSize) (newSize | (inUse * IN_USE_MASK))
 
 /* calculate the next bigger number that is a multiple of HEAP_ALIGNMENT */
-#define ALIGN_SIZE(size) ((size) + (HEAP_ALIGNMENT - (size)%HEAP_ALIGNMENT))
+#define ALIGN_SIZE(size) ((size) % HEAP_ALIGNMENT == 0 ? (size) : (size) + (HEAP_ALIGNMENT - (size)%HEAP_ALIGNMENT))
 
 /* get a BlockHeader pointer by a pointer to a memory slot */
 #define BLOCK_FROM_PTR(ptr) ((BlockHeader*)((uintptr_t)(ptr) - BLOCKHEADER_SIZE))
@@ -67,24 +67,38 @@ static void increaseHeap() {
     /* initialize heap */
     if (heap.begin == NULL) {
         heap.begin = malloc(HEAP_INITIAL_SIZE);
+        if (heap.begin == NULL) exit(1);
         heap.begin->previous = NULL;
         heap.begin->size = HEAP_INITIAL_SIZE - BLOCKHEADER_SIZE;
         heap.end = (void*)((intptr_t)heap.begin + HEAP_INITIAL_SIZE);
         return;
     }
-    /* TODO: increase last block size or add free block */
+
     /* increase heap */
     size_t oldHeapSize = (uintptr_t)heap.end - (uintptr_t)heap.begin;
     size_t newHeapSize = oldHeapSize * HEAP_GROW_FACTOR;
-    heap.begin = realloc(heap.begin, newHeapSize);
-    heap.end = (void*)((intptr_t)heap.begin + newHeapSize);
+    BlockHeader *newBegin = realloc(heap.begin, newHeapSize);
+    if (newBegin == NULL) exit(1);
+
     /* update header */
-    BlockHeader *prev= heap.begin;
+    BlockHeader *prev = newBegin;
     BlockHeader *current = BLOCK_NEXT(prev);
-    while ((void*)current < heap.end) {
+    while ((void*)current < (void*)newBegin + oldHeapSize) {
         current->previous = prev;
         prev = current;
         current = BLOCK_NEXT(current);
+    }
+    heap.begin = newBegin;
+    heap.end = (void*)((intptr_t)heap.begin + newHeapSize);
+
+    /* update free space */
+    if (BLOCK_IN_USE(prev)) { /* add new empty block if the last block is used */
+        current->previous = prev;
+        current->size = (uintptr_t)heap.end - (uintptr_t)current->block;
+        current->size |= IN_USE_MASK;
+    }
+    else { /* update size of last block if it's free */
+        prev->size = (uintptr_t)heap.end - (uintptr_t)prev->block;
     }
 }
 
@@ -106,7 +120,7 @@ static void freeHeap() {
 static BlockHeader *findFreeBlock(size_t size) {
     BlockHeader *block = heap.begin;
     while (BLOCK_IN_RANGE(block)) {
-        if (BLOCK_FREE(block) && BLOCK_SIZE(block) > size) {
+        if (BLOCK_FREE(block) && BLOCK_SIZE(block) >= size) {
             return block;
         }
         block = BLOCK_NEXT(block);
@@ -213,6 +227,9 @@ static BlockHeader *resizeBlock(BlockHeader *block, size_t size) {
         return block;
     }
 
+    /* shrink block to original size */
+    shrinkBlock(block, oldSize);
+
     return NULL;
 }
 
@@ -228,14 +245,25 @@ void *my_realloc(void *ptr, size_t size) {
     }
 
     BlockHeader *block = BLOCK_FROM_PTR(ptr);
+    size_t oldSize = BLOCK_SIZE(block);
+
     /* try to resize the block */
     if (resizeBlock(block, size) != NULL) return block->block;
 
+    /* remember offset of the block relative to heap.begin, to restore
+     * the pointer in the case the heap is moved by realloc
+     * during getBlock
+     */
+    uintptr_t blockOffset = (uintptr_t)block - (uintptr_t)heap.begin;
     /* find new block */
     BlockHeader *newBlock = getBlock(size);
+    /* restore block pointer */
+    block = (BlockHeader*)(uintptr_t)heap.begin + blockOffset;
+    
     if (newBlock == NULL) return NULL;
+
     /* copy old block to new one */
-    memcpy((void*)newBlock->block, (void*)block->block, BLOCK_SIZE(block));
+    memcpy((void*)newBlock->block, block->block, oldSize);
     /* free old block */
     freeBlock(block);
     return newBlock->block;
@@ -247,22 +275,39 @@ void my_free(void *ptr) {
     freeBlock(block);
 }
 
+#ifdef DEBUG
+/**
+ * Print block information for debugging.
+ */
+void printBlock(BlockHeader *block) {
+    printf("╭───── %p ─────╮\n", block);
+    if (block->previous != NULL)
+        printf("│ previous: %p │\n", block->previous);
+    printf("│ size:         %10lu │\n", BLOCK_SIZE(block));
+    printf("│ %24s │\n", BLOCK_IN_USE(block) ? "in use" : "free");
+    printf("╰──────────────────────────╯\n");
+}
+
 /**
  * Print heap for debugging.
  * Indicates if blocks are in used or free together with its size.
  */
-#ifdef DEBUG
 void printHeap() {
     BlockHeader *block = heap.begin;
 
     if (block == NULL) return;
 
-    printf("+--------------------------+\n");
+    printf("╔══════════ Heap ══════════╗\n");
+    printf("║ begin:    %p ║\n", heap.begin);
+    printf("║ end:      %p ║\n", heap.end);
     while (BLOCK_IN_RANGE(block)) {
-        printf("| %s             %10lu |\n", BLOCK_IN_USE(block) ? "#" : " ", BLOCK_SIZE(block));
-        printf("+--------------------------+\n");
+        printf("╟───── %p ─────╢\n", block);
+        printf("║ %s             %10lu ║\n", BLOCK_IN_USE(block) ? "#" : " ", BLOCK_SIZE(block));
 
         block = BLOCK_NEXT(block);
     }
+        printf("╟───── %p ─────╢\n", block);
+    printf("║ total size:   %10lu ║\n", (uintptr_t)heap.end - (uintptr_t)heap.begin);
+    printf("╚══════════════════════════╝\n");
 }
 #endif

@@ -9,6 +9,8 @@ int main() {
     printHeap();
     test = my_realloc(test, 200);
     printHeap();
+    test = my_realloc(test, 20);
+    printHeap();
     my_free(test);
     my_free(l);
     my_free(c);

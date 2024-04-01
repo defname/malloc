@@ -50,7 +50,7 @@
 #define DEBUG
 
 /* Initial size of the heap */
-#define HEAP_INITIAL_SIZE 1024*1024
+#define HEAP_INITIAL_SIZE 64
 /* If the heap size isn't enough it will grow by this factor */
 #define HEAP_GROW_FACTOR 2
 /* all block sizes will be a multiple of this value */
@@ -85,6 +85,12 @@ void *my_realloc(void *ptr, size_t size);
 void my_free(void *ptr);
 
 #ifdef DEBUG
+/**
+ * Print block information for debugging.
+ *
+ * @param block block too print information about
+ */
+void printBlock(BlockHeader *block);
 /**
  * Print the heap for debugging.
  * Indicates if blocks are in use together with their sizes.
