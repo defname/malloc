@@ -5,6 +5,7 @@
 
 #ifdef DEBUG
 #include <stdio.h>
+#include <math.h>
 #endif
 
 
@@ -308,6 +309,27 @@ void printHeap() {
     }
         printf("╟───── %p ─────╢\n", block);
     printf("║ total size:   %10lu ║\n", (uintptr_t)heap.end - (uintptr_t)heap.begin);
+    printf("║ fragmentation:     %.3f ║\n", fragmentation());
     printf("╚══════════════════════════╝\n");
+}
+
+/**
+ * As found at
+ * https://asawicki.info/news_1757_a_metric_for_memory_fragmentation
+ */
+double fragmentation() {
+    int quality = 0;
+    size_t totalFreeSize = 0;
+    BlockHeader *block = heap.begin;
+    if (block == NULL) return 0;
+
+    for (; BLOCK_IN_RANGE(block); block = BLOCK_NEXT(block)) {
+        if (BLOCK_IN_USE(block)) continue;
+        size_t size = BLOCK_SIZE(block);
+        quality += size * size;
+        totalFreeSize += size;
+    }
+    double qualityPercent = sqrt((double)quality) / totalFreeSize;
+    return 1 - qualityPercent * qualityPercent;
 }
 #endif

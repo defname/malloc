@@ -91,11 +91,17 @@ void my_free(void *ptr);
  * @param block block too print information about
  */
 void printBlock(BlockHeader *block);
+
 /**
  * Print the heap for debugging.
  * Indicates if blocks are in use together with their sizes.
  */
 void printHeap();
+
+/**
+ * Calculate fragmentation of the heap.
+ */
+double fragmentation();
 #endif
 
 #endif
