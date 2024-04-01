@@ -224,6 +224,10 @@ void *my_malloc(size_t size) {
 }
 
 void *my_realloc(void *ptr, size_t size) {
+    if (ptr == NULL) {
+        return my_malloc(size);
+    }
+
     BlockHeader *block = BLOCK_FROM_PTR(ptr);
     /* try to resize the block */
     if (resizeBlock(block, size) != NULL) return block->block;
