@@ -73,7 +73,6 @@ static void increaseHeap() {
         return;
     }
     /* TODO: increase last block size or add free block */
-    printf("TODO: ...\n");
     /* increase heap */
     size_t oldHeapSize = (uintptr_t)heap.end - (uintptr_t)heap.begin;
     size_t newHeapSize = oldHeapSize * HEAP_GROW_FACTOR;
@@ -172,7 +171,6 @@ static BlockHeader *getBlock(size_t size) {
     BlockHeader *block = findFreeBlock(alignedSize);
     shrinkBlock(block, alignedSize);
     block->size |= IN_USE_MASK;
-    printf("%lu\n", BLOCK_SIZE(block));
     return block;
 }
 
@@ -237,9 +235,6 @@ void *my_realloc(void *ptr, size_t size) {
     BlockHeader *newBlock = getBlock(size);
     if (newBlock == NULL) return NULL;
     /* copy old block to new one */
-    printf("%p\n%p\n", newBlock, newBlock->block);
-    printf("%p\n", BLOCK_NEXT(newBlock));
-    printf("%p\n", heap.end);
     memcpy((void*)newBlock->block, (void*)block->block, BLOCK_SIZE(block));
     /* free old block */
     freeBlock(block);
