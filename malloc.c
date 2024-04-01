@@ -1,6 +1,6 @@
 #include <stdlib.h>
 #include <stdint.h>
-
+#include <string.h>
 #include "malloc.h"
 
 #ifdef DEBUG
@@ -45,6 +45,9 @@
 
 /* calculate the next bigger number that is a multiple of HEAP_ALIGNMENT */
 #define ALIGN_SIZE(size) ((size) + (HEAP_ALIGNMENT - (size)%HEAP_ALIGNMENT))
+
+/* get a BlockHeader pointer by a pointer to a memory slot */
+#define BLOCK_FROM_PTR(ptr) ((BlockHeader*)((uintptr_t)(ptr) - BLOCKHEADER_SIZE))
 
 /**
  * struct to remember the begin and the end of the total heap area available.
@@ -220,8 +223,23 @@ void *my_malloc(size_t size) {
     return block->block;
 }
 
+void *my_realloc(void *ptr, size_t size) {
+    BlockHeader *block = BLOCK_FROM_PTR(ptr);
+    /* try to resize the block */
+    if (resizeBlock(block, size) != NULL) return block->block;
+
+    /* find new block */
+    BlockHeader *newBlock = getBlock(size);
+    if (newBlock == NULL) return NULL;
+    /* copy old block to new one */
+    memcpy(newBlock->block, block->block, block->size);
+    /* free old block */
+    freeBlock(block);
+    return newBlock->block;
+}
+
 void my_free(void *ptr) {
-    BlockHeader *block = (BlockHeader*)((uintptr_t)ptr - BLOCKHEADER_SIZE);
+    BlockHeader *block = BLOCK_FROM_PTR(ptr);
     freeBlock(block);
 }
 
