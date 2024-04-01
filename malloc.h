@@ -49,8 +49,8 @@
 
 #define DEBUG
 
-/* Initial size of the heap */
-#define HEAP_INITIAL_SIZE 64
+/* Initial size of the heap, need to be a multiple of HEAP_ALIGNMENT */
+#define HEAP_INITIAL_SIZE 1024
 /* If the heap size isn't enough it will grow by this factor */
 #define HEAP_GROW_FACTOR 2
 /* all block sizes will be a multiple of this value */
