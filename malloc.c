@@ -69,6 +69,7 @@ static void increaseHeap() {
         heap.end = (void*)((intptr_t)heap.begin + HEAP_INITIAL_SIZE);
         return;
     }
+    /* TODO: increase last block size or add free block */
     /* increase heap */
     size_t oldHeapSize = (uintptr_t)heap.end - (uintptr_t)heap.begin;
     size_t newHeapSize = oldHeapSize * HEAP_GROW_FACTOR;
@@ -119,10 +120,14 @@ static BlockHeader *findFreeBlock(size_t size) {
  */
 static size_t joinBlockWithFollower(BlockHeader *block) {
     BlockHeader *next = BLOCK_NEXT(block);
-    if (!BLOCK_IN_RANGE(next) || !BLOCK_FREE(block)) {
+    if (!BLOCK_IN_RANGE(next) || BLOCK_IN_USE(next)) {
         return BLOCK_SIZE(block);
     }
     block->size += BLOCKHEADER_SIZE + BLOCK_SIZE(next);
+    /* update followers back reference */
+    next = BLOCK_NEXT(block);
+    if (BLOCK_IN_RANGE(next)) next->previous = block;
+
     return BLOCK_SIZE(block);
 }
 
@@ -163,6 +168,7 @@ static BlockHeader *getBlock(size_t size) {
     BlockHeader *block = findFreeBlock(alignedSize);
     shrinkBlock(block, alignedSize);
     block->size |= IN_USE_MASK;
+    printf("%lu\n", BLOCK_SIZE(block));
     return block;
 }
 
@@ -226,7 +232,14 @@ void my_free(void *ptr) {
 void printHeap() {
     BlockHeader *block = heap.begin;
 
+    if (block == NULL) return;
+
+    printf("+--------------------------+\n");
     while (BLOCK_IN_RANGE(block)) {
+        printf("| %s             %10lu |\n", BLOCK_IN_USE(block) ? "#" : " ", BLOCK_SIZE(block));
+        printf("+--------------------------+\n");
+
+        block = BLOCK_NEXT(block);
     }
 }
 #endif
