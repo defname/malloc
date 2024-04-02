@@ -51,12 +51,13 @@
 #define DEBUG
 
 /* Initial size of the heap, need to be a multiple of HEAP_ALIGNMENT */
-#define HEAP_INITIAL_SIZE 1024
+#define HEAP_INITIAL_SIZE 32
 /* If the heap size isn't enough it will grow by this factor */
 #define HEAP_GROW_FACTOR 2
 /* all block sizes will be a multiple of this value */
 #define HEAP_ALIGNMENT sizeof(uintptr_t)
-
+/* calculate the total size of the heap */
+#define HEAP_SIZE ((uintptr_t)heap.end - (uintptr_t)heap.begin)
 
 /**
  * The size field of the BlockHeader struct is used for the size and to mark

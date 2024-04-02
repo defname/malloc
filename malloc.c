@@ -1,4 +1,4 @@
-#include <stdlib.h>
+#include <unistd.h>
 #include <string.h>
 #include "malloc.h"
 
@@ -19,52 +19,63 @@ typedef struct {
 Heap heap = {NULL, NULL};
 
 /**
- * Increase the heap by HEAP_GROW_FACTOR or initialize it with HEAP_INITIAL_SIZE.
+ * Find and return the last block of the heap.
+ *
+ * @return pointer to the header of the last block of the heap
  */
-static void increaseHeap() {
+static BlockHeader *findLastBlock() {
+    if (heap.begin == NULL) return NULL;
+    BlockHeader *prev = heap.begin;
+    BlockHeader *block = BLOCK_NEXT(prev);
+    while (BLOCK_IN_RANGE(block)) {
+        prev = block;
+        block = BLOCK_NEXT(block);
+    }
+    return prev;
+}
+
+/**
+ * Increase the heap by HEAP_GROW_FACTOR or initialize it with HEAP_INITIAL_SIZE.
+ *
+ * @return new size of the heap if it was increased. 0 if increasing failed.
+ */
+static int increaseHeap() {
     /* initialize heap */
     if (heap.begin == NULL) {
-        heap.begin = malloc(HEAP_INITIAL_SIZE);
-        if (heap.begin == NULL) exit(1);
+        heap.begin = (BlockHeader*)sbrk(HEAP_INITIAL_SIZE);
+        if (heap.begin == (void*)-1) return -1;
         heap.begin->previous = NULL;
         heap.begin->size = HEAP_INITIAL_SIZE - BLOCKHEADER_SIZE;
         heap.end = (void*)((intptr_t)heap.begin + HEAP_INITIAL_SIZE);
-        return;
+        return HEAP_INITIAL_SIZE;
     }
 
     /* increase heap */
-    size_t oldHeapSize = (uintptr_t)heap.end - (uintptr_t)heap.begin;
-    size_t newHeapSize = oldHeapSize * HEAP_GROW_FACTOR;
-    BlockHeader *newBegin = realloc(heap.begin, newHeapSize);
-    if (newBegin == NULL) exit(1);
+    size_t totalSize = HEAP_SIZE;
+    size_t addSize = totalSize * (HEAP_GROW_FACTOR-1);
+    BlockHeader *lastBlock = findLastBlock();
 
-    /* update header */
-    BlockHeader *prev = newBegin;
-    BlockHeader *current = BLOCK_NEXT(prev);
-    while ((void*)current < (void*)newBegin + oldHeapSize) {
-        current->previous = prev;
-        prev = current;
-        current = BLOCK_NEXT(current);
-    }
-    heap.begin = newBegin;
-    heap.end = (void*)((intptr_t)heap.begin + newHeapSize);
+    int result = brk(heap.end + addSize);
+    if (result == -1) return -1;
 
-    /* update free space */
-    if (BLOCK_IN_USE(prev)) { /* add new empty block if the last block is used */
-        current->previous = prev;
-        current->size = (uintptr_t)heap.end - (uintptr_t)current->block;
-        current->size |= IN_USE_MASK;
+    BlockHeader *newBlock = heap.end;
+    heap.end += addSize;
+    
+    if (BLOCK_FREE(lastBlock)) {
+        lastBlock->size += addSize;
     }
-    else { /* update size of last block if it's free */
-        prev->size = (uintptr_t)heap.end - (uintptr_t)prev->block;
+    else {
+        newBlock->size = addSize - BLOCKHEADER_SIZE;
+        newBlock->previous = lastBlock;
     }
+    return HEAP_SIZE;
 }
 
 /**
  * Free the complete heap area.
  */
 static void freeHeap() {
-    free(heap.begin);
+    brk(heap.begin);
     heap.begin = NULL;
     heap.end = NULL;
 }
@@ -83,7 +94,8 @@ static BlockHeader *findFreeBlock(size_t size) {
         }
         block = BLOCK_NEXT(block);
     }
-    increaseHeap();
+    if (increaseHeap() == -1) return NULL;
+
     return findFreeBlock(size);
 }
 
@@ -141,6 +153,7 @@ static size_t shrinkBlock(BlockHeader *block, size_t alignedSize) {
 static BlockHeader *getBlock(size_t size) {
     size_t alignedSize = ALIGN_SIZE(size);
     BlockHeader *block = findFreeBlock(alignedSize);
+    if (block == NULL) return NULL;
     shrinkBlock(block, alignedSize);
     block->size |= IN_USE_MASK;
     return block;
@@ -211,6 +224,7 @@ void *my_realloc(void *ptr, size_t size) {
     /* remember offset of the block relative to heap.begin, to restore
      * the pointer in the case the heap is moved by realloc
      * during getBlock
+     * This might be not needed anymore
      */
     uintptr_t blockOffset = (uintptr_t)block - (uintptr_t)heap.begin;
     /* find new block */
