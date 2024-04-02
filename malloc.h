@@ -48,7 +48,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* include debugging helper functions */
 #define DEBUG
+/* if defined malloc, realloc, calloc and free are defined and the original
+ * malloc functions can be replaced by compiling with
+ *   gcc -fno-builtin-malloc
+ */
+#define REPLACE_ORIGINAL_MALLOC
 
 /* Initial size of the heap, need to be a multiple of HEAP_ALIGNMENT */
 #define HEAP_INITIAL_SIZE 128
@@ -130,6 +136,14 @@ void *my_malloc(size_t size);
 void *my_calloc(size_t num, size_t size);
 void *my_realloc(void *ptr, size_t size);
 void my_free(void *ptr);
+
+#ifdef REPLACE_ORIGINAL_MALLOC
+void *malloc(size_t size);
+void *calloc(size_t num, size_t size);
+void *realloc(void *ptr, size_t size);
+void free(void *ptr);
+#endif
+
 
 #ifdef DEBUG
 /**

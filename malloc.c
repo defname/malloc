@@ -1,3 +1,4 @@
+#include <stdint.h>
 #include <unistd.h>
 #include <string.h>
 #include "malloc.h"
@@ -234,16 +235,8 @@ void *my_realloc(void *ptr, size_t size) {
     /* try to resize the block */
     if (resizeBlock(block, size) != NULL) return block->block;
 
-    /* remember offset of the block relative to heap.begin, to restore
-     * the pointer in the case the heap is moved by realloc
-     * during getBlock
-     * This might be not needed anymore
-     */
-    uintptr_t blockOffset = (uintptr_t)block - (uintptr_t)heap.begin;
     /* find new block */
     BlockHeader *newBlock = getBlock(size);
-    /* restore block pointer */
-    block = (BlockHeader*)((uintptr_t)heap.begin + blockOffset);
     
     if (newBlock == NULL) return NULL;
 
@@ -259,6 +252,13 @@ void my_free(void *ptr) {
     BlockHeader *block = BLOCK_FROM_PTR(ptr);
     freeBlock(block);
 }
+
+#ifdef REPLACE_ORIGINAL_MALLOC
+void *malloc(size_t size) { return my_malloc(size); }
+void *calloc(size_t num, size_t size) { return my_calloc(num, size); }
+void *realloc(void *ptr, size_t size) { return my_realloc(ptr, size); }
+void free(void *ptr) { my_free(ptr); }
+#endif
 
 #ifdef DEBUG
 /**
@@ -324,7 +324,7 @@ void printAllBlocks() {
  * https://asawicki.info/news_1757_a_metric_for_memory_fragmentation
  */
 double fragmentation() {
-    int quality = 0;
+    uint64_t quality = 0;
     size_t totalFreeSize = 0;
     BlockHeader *block = heap.begin;
     if (block == NULL) return 0;
@@ -335,7 +335,8 @@ double fragmentation() {
         quality += size * size;
         totalFreeSize += size;
     }
-    double qualityPercent = sqrt((double)quality) / totalFreeSize;
+    if (totalFreeSize == 0) return 0;
+    double qualityPercent = sqrt((double)quality) / (double)totalFreeSize;
     return 1 - qualityPercent * qualityPercent;
 }
 #endif

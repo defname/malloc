@@ -61,10 +61,12 @@ void *d = my_alloc(30);
 ```
 
 ## Usage
-Include ``malloc.h`` and use ``my_malloc()``, ``my_realloc()`` and 
-``my_free()`` like their official versions.
+Include ``malloc.h`` and use ``malloc()``, ``calloc()``, ``realloc()`` and 
+``free()`` as usual and compile with gcc with the ``-fno-builtin-malloc``
+flag.
 
 It's work in progress and not made for productive use.
+
 
 ## TODO
 - free or decrease heap if it's empty or almost empty (?)
