@@ -67,5 +67,4 @@ Include ``malloc.h`` and use ``my_malloc()``, ``my_realloc()`` and
 It's work in progress and not made for productive use.
 
 ## TODO
-- don't use malloc in increaseHeap().
 - free or decrease heap if it's empty or almost empty (?)
