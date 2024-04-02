@@ -1,15 +1,13 @@
 #include "malloc.h"
+#include <stdint.h>
 
 int main() {
     void *test = my_malloc(123);
-    long *l = my_malloc(sizeof(long));
+    uint64_t *l = my_malloc(sizeof(uint64_t));
+    *l = UINT64_MAX;
     char *c = my_malloc(sizeof(char));
     printHeap();
-    test = my_realloc(test, 126);
-    printHeap();
-    test = my_realloc(test, 200);
-    printHeap();
-    test = my_realloc(test, 20);
+    l = my_realloc(l, 2*sizeof(uint64_t));
     printHeap();
     my_free(test);
     my_free(l);
