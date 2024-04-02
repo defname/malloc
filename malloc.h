@@ -51,7 +51,7 @@
 #define DEBUG
 
 /* Initial size of the heap, need to be a multiple of HEAP_ALIGNMENT */
-#define HEAP_INITIAL_SIZE 32
+#define HEAP_INITIAL_SIZE 128
 /* If the heap size isn't enough it will grow by this factor */
 #define HEAP_GROW_FACTOR 2
 /* all block sizes will be a multiple of this value */
@@ -127,6 +127,7 @@ typedef struct _BlockHeader {
  * standard library.
  */
 void *my_malloc(size_t size);
+void *my_calloc(size_t num, size_t size);
 void *my_realloc(void *ptr, size_t size);
 void my_free(void *ptr);
 
@@ -143,6 +144,11 @@ void printBlock(BlockHeader *block);
  * Indicates if blocks are in use together with their sizes.
  */
 void printHeap();
+
+/**
+ * Print all blocks in the heap.
+ */
+void printAllBlocks();
 
 /**
  * Calculate fragmentation of the heap.

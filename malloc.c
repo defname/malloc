@@ -129,7 +129,7 @@ static size_t joinBlockWithFollower(BlockHeader *block) {
  * @return new size of bigEnoughBlock
  */
 static size_t shrinkBlock(BlockHeader *block, size_t alignedSize) {
-    size_t oldSize = BLOCK_SIZE (block);
+    size_t oldSize = BLOCK_SIZE(block);
 
     /* if there is no space to add an additional header don't shrink */
     if (alignedSize + BLOCKHEADER_SIZE >= oldSize) return BLOCK_SIZE(block);
@@ -207,6 +207,19 @@ static BlockHeader *resizeBlock(BlockHeader *block, size_t size) {
 void *my_malloc(size_t size) {
     BlockHeader *block = getBlock(size);
     if (block == NULL) return NULL;
+    return block->block;
+}
+
+void *my_calloc(size_t num, size_t size) {
+    size_t totalSize = num * size;
+    if (totalSize == 0) return NULL;
+    BlockHeader *block = getBlock(totalSize);
+    if (block == NULL) return NULL;
+    uintptr_t *ptr = (uintptr_t*)block->block;
+    while (ptr < (uintptr_t*)BLOCK_NEXT(block)) {
+        *ptr = 0;
+        ptr++;
+    }
     return block->block;
 }
 
@@ -292,6 +305,18 @@ void printHeap() {
     printf("║ total size:   %10lu ║\n", (uintptr_t)heap.end - (uintptr_t)heap.begin);
     printf("║ fragmentation:     %.3f ║\n", fragmentation());
     printf("╚══════════════════════════╝\n");
+}
+
+/**
+ * Print all blocks in the heap.
+ */
+void printAllBlocks() {
+    BlockHeader *block = heap.begin;
+    while (BLOCK_IN_RANGE(block)) {
+        printBlock(block);
+        block = BLOCK_NEXT(block);
+    }
+    printf("\n");
 }
 
 /**
