@@ -67,6 +67,30 @@ flag.
 
 It's work in progress and not made for productive use.
 
+You can also compile it as shared library:
+
+Make sure in the file ``malloc.h`` the line 
+```
+#define DEBUG
+```
+is commented out and
+```
+#define REPLACE_ORIGINAL_MALLOC
+```
+is not commented. Then compile with
+```sh
+gcc -shared -o libmymalloc.so -fpic 
+```
+and run any program with
+```
+LD_PRELOAD=./libmymalloc.so program
+```
+
 
 ## TODO
 - free or decrease heap if it's empty or almost empty (?)
+
+## Bugs
+Segmentation fault while starting some programs with the shared library preloaded
+(e.g. ``filezilla`` with ``LD_PRELOAD=./libmymalloc.so filezilla``).
+
