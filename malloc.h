@@ -1,18 +1,22 @@
 /**
- * Reimplementation of malloc, realloc and free.
+ * Reimplementation of malloc, calloc, realloc and free.
  *
  * It's done for practice and might not be the best or most efficient or bug
  * free implementation.
  *
- * The idea is to to allocate quite a big part of memory and manage user
- * allocations (done by my_malloc() and my_realloc()) within this area.
- * A double linked list of blocks with indicators if they are available is
- * maintained. At the beginning there is only one big free block containing
- * the complete heap area used. If memory is allocated the list is searched
- * for the first big enough block and a part of it is used.
- * If a block is freed it's marked as free and joined with previous and
- * following block if they are also free.
- *
+ * To manage the memory a double linked list of memory blocks is maintained.
+ * If malloc() is called the list is searched for a suitable (free) block,
+ * it is shrinked to the requested size (if it's possible and reasonable)
+ * and separated from the (free) rest of the block.
+ * If a block is freed it is marked as free and if possible joined with
+ * the previous and the following blocks (only if they are free too of course).
+ * If malloc() is called and no suitable block is found, additional memory
+ * is requested from the operating system (via sbrk at the moment).
+ * If the new memory is located directly after the last block they will be
+ * joined otherwise they are not joinable what is easy to check with
+ * the double link list.
+ * It is always ensured that adjacent blocks are joined if possible, so that
+ * there are never two free blocks next to each other.
  */
 #ifndef MALLOC_H
 #define MALLOC_H
@@ -30,8 +34,6 @@
 #define HEAP_INITIAL_SIZE 128
 /* all block sizes will be a multiple of this value */
 #define HEAP_ALIGNMENT sizeof(uintptr_t)
-/* calculate the total size of the heap */
-#define HEAP_SIZE ((uintptr_t)heap.end - (uintptr_t)heap.begin)
 
 /**
  * The size field of the BlockHeader struct is used for the size and to mark
