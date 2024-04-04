@@ -3,255 +3,280 @@
 #include <string.h>
 #include "malloc.h"
 
-#ifdef DEBUG
+#ifndef NDEBUG
 #include <stdio.h>
 #include <math.h>
 #endif
 
-/**
- * struct to remember the begin and the end of the total heap area available.
- */
-typedef struct {
-    BlockHeader *begin;
-    void *end;
-} Heap;
-
-/* global object to remember the heap area */
-Heap heap = {NULL, NULL};
+BlockHeader *heap = NULL;
 
 /**
- * Find and return the last block of the heap.
- *
- * @return pointer to the header of the last block of the heap
+ * Get the last block.
+ * 
+ * @return pointer to the BlockHeader of the last block
+ *         or NULL if the heap is uninitialized
  */
-static BlockHeader *findLastBlock() {
-    if (heap.begin == NULL) return NULL;
-    BlockHeader *prev = heap.begin;
-    BlockHeader *block = BLOCK_NEXT(prev);
-    while (BLOCK_IN_RANGE(block)) {
-        prev = block;
-        block = BLOCK_NEXT(block);
+static BlockHeader *getLastBlock() {
+    if (heap == NULL) return NULL;
+    BlockHeader *block = heap;
+    while (block->next != NULL) {
+        block = block->next;
     }
-    return prev;
+    return block;
 }
 
 /**
- * Increase the heap by HEAP_GROW_FACTOR or initialize it with HEAP_INITIAL_SIZE.
- *
- * @return new size of the heap if it was increased. 0 if increasing failed.
+ * Increase the heap by at least minSize bytes. minSize needs to be a multiple
+ * of HEAP_ALIGNMENT.
+ * 
+ * @param minSize minimum number of bytes that should be available after the
+ *                call. minSize has to be a multiple of HEAP_ALIGNMENT.
+ *                Use ALIGN_SIZE(size) before.
+ * @return number of bytes available in the last block or -1 if allocation was
+ *         unsuccessful
  */
-static int increaseHeap() {
-    /* initialize heap */
-    if (heap.begin == NULL) {
-        heap.begin = (BlockHeader*)sbrk(HEAP_INITIAL_SIZE);
-        if (heap.begin == (void*)-1) return -1;
-        heap.begin->previous = NULL;
-        heap.begin->size = HEAP_INITIAL_SIZE - BLOCKHEADER_SIZE;
-        heap.end = (void*)((intptr_t)heap.begin + HEAP_INITIAL_SIZE);
-        return HEAP_INITIAL_SIZE;
+static BlockHeader* increaseHeap(size_t minSize) {
+    /* if heap is uninitialized initialize it */
+    if (heap == NULL) {
+        size_t size = minSize + BLOCKHEADER_SIZE;
+        size = size > HEAP_INITIAL_SIZE ? size * 2 : HEAP_INITIAL_SIZE;
+        heap = sbrk(HEAP_INITIAL_SIZE);
+        if ((void*)heap == (void*)-1) {
+            return NULL;
+        }
+        heap->size = size - BLOCKHEADER_SIZE;
+        /* initialize double linked list */
+        heap->previous = NULL;
+        heap->next = NULL;
+
+        return heap;
     }
 
-    /* increase heap */
-    size_t totalSize = HEAP_SIZE;
-    size_t addSize = totalSize * (HEAP_GROW_FACTOR-1);
-    BlockHeader *lastBlock = findLastBlock();
+    BlockHeader *lastBlock = getLastBlock();
+    /* lastBlock != NULL because heap != NULL */
 
-    int result = brk(heap.end + addSize);
-    if (result == -1) return -1;
+    BlockHeader *newBlock = sbrk(minSize + BLOCKHEADER_SIZE);
+    if ((void*)newBlock == (void*)-1) return NULL;
 
-    BlockHeader *newBlock = heap.end;
-    heap.end += addSize;
-    
-    if (BLOCK_FREE(lastBlock)) {
-        lastBlock->size += addSize;
+    /* if the last block is free and the new allocated memory is next to it
+     * increase last block
+     */
+    if (BLOCK_END(lastBlock) == (void*)newBlock && BLOCK_FREE(lastBlock)) {
+        lastBlock->size += minSize + BLOCKHEADER_SIZE;
+        return lastBlock;
     }
-    else {
-        newBlock->size = addSize - BLOCKHEADER_SIZE;
-        newBlock->previous = lastBlock;
-    }
-    return HEAP_SIZE;
+
+    /* insert an empty block */
+    newBlock->size = minSize;
+    lastBlock->next = newBlock;
+    newBlock->previous = lastBlock;
+    newBlock->next = NULL;
+    return newBlock;
 }
 
 /**
- * Free the complete heap area.
- */
-static void freeHeap() {
-    brk(heap.begin);
-    heap.begin = NULL;
-    heap.end = NULL;
-}
-
-/**
- * Find a free block with at least size available bytes.
+ * Find a free block with at least minSize bytes of memory.
  *
- * @param size the minimum size the block needs to have
- * @return pointer to the found block.
+ * @param minSize number of bytes needed
+ * @return pointer to the header of the found block or NULL
+ *         if the search was unsuccessfull.
  */
-static BlockHeader *findFreeBlock(size_t size) {
-    BlockHeader *block = heap.begin;
-    while (BLOCK_IN_RANGE(block)) {
-        if (BLOCK_FREE(block) && BLOCK_SIZE(block) >= size) {
+static BlockHeader *findFreeBlock(size_t minSize) {
+    if (heap == NULL) return NULL;
+    BlockHeader *block = heap;
+
+    while (block != NULL) {
+        if (BLOCK_FREE(block) && BLOCK_SIZE(block) >= minSize) {
             return block;
         }
-        block = BLOCK_NEXT(block);
+        block = block->next;
     }
-    if (increaseHeap() == -1) return NULL;
-
-    return findFreeBlock(size);
+    return NULL;
 }
 
 /**
- * Join block with the following block if it's possible.
+ * Join block with next block if possible.
  *
- * @param block block to join with it's descendant
- * @return new size of block
+ * @param block pointer to the header of the block to join with its descendant
+ * @return new size of the block
  */
 static size_t joinBlockWithFollower(BlockHeader *block) {
-    BlockHeader *next = BLOCK_NEXT(block);
-    if (!BLOCK_IN_RANGE(next) || BLOCK_IN_USE(next)) {
+    BlockHeader *next = block->next;
+    if (next == NULL
+        || BLOCK_IN_USE(next)
+        || BLOCK_END(block) != (void*)next) {
         return BLOCK_SIZE(block);
     }
     block->size += BLOCKHEADER_SIZE + BLOCK_SIZE(next);
-    /* update followers back reference */
-    next = BLOCK_NEXT(block);
-    if (BLOCK_IN_RANGE(next)) next->previous = block;
-
-    return BLOCK_SIZE(block);
-}
-
-/**
- * Shrink size of block to size.
- * aligned_size need to be smaller or equal to the original size of block
- * and it needs to be a multiple of HEAP_ALIGNMENT.
- *
- * @param block block to shrink
- * @param alignedSize new size which is a multiple of HEAP_ALIGNMENT and fits
- *        into block.
- * @return new size of bigEnoughBlock
- */
-static size_t shrinkBlock(BlockHeader *block, size_t alignedSize) {
-    size_t oldSize = BLOCK_SIZE(block);
-
-    /* if there is no space to add an additional header don't shrink */
-    if (alignedSize + BLOCKHEADER_SIZE >= oldSize) return BLOCK_SIZE(block);
-
-    /* resize block */
-    block->size = NEW_SIZE(BLOCK_IN_USE(block), alignedSize);
-    /* add an empty block behind */
-    BlockHeader *newEmptyBlock = BLOCK_NEXT(block);
-    newEmptyBlock->size = oldSize - BLOCKHEADER_SIZE - alignedSize;
-    newEmptyBlock->previous = block;
     
+    /* update linked list */
+    block->next = next->next;
+    if (block->next != NULL) block->next->previous = block;
+
     return BLOCK_SIZE(block);
 }
 
 /**
- * Get a block that fits size and mark it as used.
- *
- * @param size the requested size.
- * @return a pointer to the Block with at least size bytes available
+ * @return pointer to the header of the enlarged or found block
  */
-static BlockHeader *getBlock(size_t size) {
-    size_t alignedSize = ALIGN_SIZE(size);
+static size_t resizeBlock(BlockHeader *block, size_t minSize) {
+    size_t alignedSize = ALIGN_SIZE(minSize);
+
+    /* join block with it's follower */
+    size_t enlargedBlockSize = joinBlockWithFollower(block);
+    /* if the enlarged block is not big enough there is nothing we can do
+     * here
+     */
+    if (enlargedBlockSize < alignedSize) {
+        return 0;
+    }
+
+    /*  Now try to shrink the block again to alignedSize.
+     *
+     *  HEAP_ALIGNMENT is the minimum size a block can contain.
+     *  +-------------------------------------------+
+     *  |                 block size                |
+     *  +------------------------+--------+---------+
+     *  | alignedSize            | HEADER | minSize |
+     *  +------------------------+--------+---------+
+     */
+    if (enlargedBlockSize < alignedSize + BLOCKHEADER_SIZE + HEAP_ALIGNMENT) {
+        /* So if orig size is to small to contain an additional
+         * empty block with at least HEAP_ALIGNMENT size there
+         * is no point in shrinking it in the first place.
+         */
+        return enlargedBlockSize;
+    }
+
+
+    block->size = NEW_SIZE(BLOCK_IN_USE(block), alignedSize);
+
+    BlockHeader *newBlock = BLOCK_END(block);
+    /* we ensured that newBlock->size will be at least HEAP_ALIGNMENT */
+    newBlock->size = enlargedBlockSize - BLOCKHEADER_SIZE - alignedSize;
+
+    /* update double linked list */
+    newBlock->previous = block;
+    newBlock->next = block->next;
+    block->next = newBlock;
+    if (newBlock->next != NULL) newBlock->next->previous = newBlock;
+
+    return BLOCK_SIZE(block);
+}
+
+
+/**
+ * Find free space and create a block of minSize.
+ * The block size might be bigger depending on whats available if it
+ * can be shrinked.
+ *
+ * @param minSize the minimum amount of bytes the block should provide
+ * @return pointer to the header of the block already marked as in-use
+ */
+static BlockHeader *getBlock(size_t minSize) {
+    size_t alignedSize = ALIGN_SIZE(minSize);
+
+    /* try to find a free block */
     BlockHeader *block = findFreeBlock(alignedSize);
+    /* if no big enough free block is found increase the heap */
+    if (block == NULL)
+        block = increaseHeap(alignedSize);
+    /* if this fails there is nothing we can do */
     if (block == NULL) return NULL;
-    shrinkBlock(block, alignedSize);
+
+    resizeBlock(block, alignedSize);
+    
     block->size |= IN_USE_MASK;
     return block;
 }
 
-static void freeBlock(BlockHeader *block) {
-    /* mark as free */
+/**
+ * Mark block as free and join it with adjacent free blocks.
+ *
+ * @param block block to be freed
+ */
+void freeBlock(BlockHeader *block) {
     block->size &= SIZE_MASK;
-
-    /* join following block */
     joinBlockWithFollower(block);
-
-    /* join previous block */
-    BlockHeader *previous = block->previous;
-    if (previous != NULL && BLOCK_FREE(previous)) {
-        block->previous->size += BLOCKHEADER_SIZE + BLOCK_SIZE(block);
+    if (block->previous == NULL) {
+        heap = block;
+    }
+    else if (BLOCK_FREE(block->previous)) {
+        joinBlockWithFollower(block->previous);
     }
 }
+
 
 /**
- * Resize a non-free block to size if possible. Return NULL if it is not.
- * 
- * @param block non-free block to resize
- * @param size new size of block
+ * The following functions should behave exactly like their official versions
  */
-static BlockHeader *resizeBlock(BlockHeader *block, size_t size) {
-    size_t oldSize = BLOCK_SIZE(block);
-    size_t alignedSize = ALIGN_SIZE(size);
-    if (alignedSize == oldSize) {
-        return block;
-    }
-
-    /* Increase block size if possible.
-     * This is also useful if the new block size is lower than the old one,
-     * since so is ensured that there is space for the new header if available.
-     * */
-    size_t newBlockSize = joinBlockWithFollower(block);
-    
-    /* decrease size */
-    if (alignedSize < newBlockSize) {
-        shrinkBlock(block, alignedSize);
-        return block;
-    }
-
-    /* shrink block to original size */
-    shrinkBlock(block, oldSize);
-
-    return NULL;
-}
 
 void *my_malloc(size_t size) {
+    if (size == 0) return NULL;
+
     BlockHeader *block = getBlock(size);
     if (block == NULL) return NULL;
+
+    PRINT_PTR("malloc    ", block->block);
+
     return block->block;
 }
 
 void *my_calloc(size_t num, size_t size) {
     size_t totalSize = num * size;
     if (totalSize == 0) return NULL;
+
     BlockHeader *block = getBlock(totalSize);
     if (block == NULL) return NULL;
-    uintptr_t *ptr = (uintptr_t*)block->block;
-    while (ptr < (uintptr_t*)BLOCK_NEXT(block)) {
+
+    for (uintptr_t *ptr = (uintptr_t*)block->block; (void*)ptr < BLOCK_END(block); ptr++) {
         *ptr = 0;
-        ptr++;
     }
+    
+    PRINT_PTR("calloc    ", block->block);
+
     return block->block;
 }
 
 void *my_realloc(void *ptr, size_t size) {
-    if (ptr == NULL) {
-        return my_malloc(size);
+    if (ptr == NULL) return my_malloc(size);
+
+    if (size == 0) {
+        my_free(ptr);
+        return NULL;
     }
 
     BlockHeader *block = BLOCK_FROM_PTR(ptr);
-    size_t oldSize = BLOCK_SIZE(block);
 
-    /* try to resize the block */
-    if (resizeBlock(block, size) != NULL) return block->block;
+    /* try to resize block */
+    if (resizeBlock(block, size) > 0) { /* if successful return return it */
+        PRINT_PTR("realloc(r)", block->block);
 
-    /* find new block */
+        return block->block;
+    }
+
+    /* find another block and copy the data */
     BlockHeader *newBlock = getBlock(size);
-    
-    if (newBlock == NULL) return NULL;
+    if (newBlock == NULL) {
+        /* should ptr be freed here?? */
+        return NULL;
+    }
+    memcpy(newBlock->block, block->block, BLOCK_SIZE(block));
 
-    /* copy old block to new one */
-    memcpy((void*)newBlock->block, block->block, oldSize);
+    PRINT_PTR("realloc(m)", block->block);
+
     /* free old block */
     freeBlock(block);
+
     return newBlock->block;
 }
 
 void my_free(void *ptr) {
     if (ptr == NULL) return;
-    BlockHeader *block = BLOCK_FROM_PTR(ptr);
-    freeBlock(block);
+    PRINT_PTR("free      ", ptr);
+    freeBlock(BLOCK_FROM_PTR(ptr));
 }
+
 
 #ifdef REPLACE_ORIGINAL_MALLOC
 void *malloc(size_t size) { return my_malloc(size); }
@@ -260,14 +285,46 @@ void *realloc(void *ptr, size_t size) { return my_realloc(ptr, size); }
 void free(void *ptr) { my_free(ptr); }
 #endif
 
-#ifdef DEBUG
+
+#ifndef NDEBUG
+/**
+ * Print pointer adress to stdout without using any allocation.
+ */
+void outputPtr(void *ptr) {
+    uintptr_t n = (uintptr_t)ptr;
+    size_t digitsCount = sizeof(uintptr_t) * 2;
+    uint8_t digits[digitsCount];
+    for (int i=digitsCount-1; i>=0; i--) {
+        digits[i] = n % 16;
+        n /= 16;
+    }
+    write(STDOUT_FILENO, "0x", 2);
+    for (int i=0; i< digitsCount; i++) {
+        char c = digits[i] < 10 ? '0' + digits[i] : 'A' + (digits[i]-10);
+        write(STDOUT_FILENO, &c, 1);
+    }
+    write(STDOUT_FILENO, "\n", 1);
+}
+
+static void printfPtr(void *ptr) {
+//#define NULL_STRING "0x000000000000"
+#define NULL_STRING "          NULL"
+    if (ptr == NULL) printf(NULL_STRING);
+    else printf("%p", ptr);
+#undef NULL_STRING
+}
+
 /**
  * Print block information for debugging.
  */
 void printBlock(BlockHeader *block) {
     printf("╭─ %p ────────────────────╮\n", block);
-    if (block->previous != NULL)
-        printf("│ previous:            %p │\n", block->previous);
+    printf("│ previous:     ");
+    printfPtr(block->previous);
+    printf(" │\n");
+    printf("│ next:     ");
+    printfPtr(block->next);
+    printf(" │\n");
     printf("│ size:                    %10lu │\n", BLOCK_SIZE(block));
     printf("│            %24s │\n", BLOCK_IN_USE(block) ? "in use" : "free");
 
@@ -288,21 +345,31 @@ void printBlock(BlockHeader *block) {
  * Indicates if blocks are in used or free together with its size.
  */
 void printHeap() {
-    BlockHeader *block = heap.begin;
+    BlockHeader *block = heap;
 
     if (block == NULL) return;
 
+    size_t totalSize = 0;
+
     printf("╔══════════ Heap ══════════╗\n");
-    printf("║ begin:    %p ║\n", heap.begin);
-    printf("║ end:      %p ║\n", heap.end);
-    while (BLOCK_IN_RANGE(block)) {
+    while (block != NULL) {
+        if (block->previous != NULL && BLOCK_END(block->previous) != (void*)block) {
+            printf("╠══════════════════════════╣\n");
+        }
         printf("╟───── %p ─────╢\n", block);
+        printf("║ previous: ");
+        printfPtr(block->previous);
+        printf(" ║\n");
+        printf("║ next:     ");
+        printfPtr(block->next);
+        printf(" ║\n");
         printf("║ %s             %10lu ║\n", BLOCK_IN_USE(block) ? "#" : " ", BLOCK_SIZE(block));
 
-        block = BLOCK_NEXT(block);
+        totalSize += BLOCK_SIZE(block);
+        block = block->next;
     }
-        printf("╟───── %p ─────╢\n", block);
-    printf("║ total size:   %10lu ║\n", (uintptr_t)heap.end - (uintptr_t)heap.begin);
+    printf("╠══════════════════════════╣\n");
+    printf("║ total size:   %10lu ║\n", totalSize);
     printf("║ fragmentation:     %.3f ║\n", fragmentation());
     printf("╚══════════════════════════╝\n");
 }
@@ -311,10 +378,10 @@ void printHeap() {
  * Print all blocks in the heap.
  */
 void printAllBlocks() {
-    BlockHeader *block = heap.begin;
-    while (BLOCK_IN_RANGE(block)) {
+    BlockHeader *block = heap;
+    while (block != NULL) {
         printBlock(block);
-        block = BLOCK_NEXT(block);
+        block = block->next;
     }
     printf("\n");
 }
@@ -326,10 +393,10 @@ void printAllBlocks() {
 double fragmentation() {
     uint64_t quality = 0;
     size_t totalFreeSize = 0;
-    BlockHeader *block = heap.begin;
+    BlockHeader *block = heap;
     if (block == NULL) return 0;
 
-    for (; BLOCK_IN_RANGE(block); block = BLOCK_NEXT(block)) {
+    for (; block != NULL; block = block->next) {
         if (BLOCK_IN_USE(block)) continue;
         size_t size = BLOCK_SIZE(block);
         quality += size * size;
@@ -340,3 +407,4 @@ double fragmentation() {
     return 1 - qualityPercent * qualityPercent;
 }
 #endif
+

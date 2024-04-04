@@ -13,34 +13,6 @@
  * If a block is freed it's marked as free and joined with previous and
  * following block if they are also free.
  *
- * Here is a little examle how the heap area is organized:
- *
- * initial state
- * +-------------------------------------------------------+
- * |                                                       |
- * +-------------------------------------------------------+
- *
- * void *a = my_alloc(20);
- * void *b = my_alloc(40);
- * void *c = my_alloc(30);
- * +---+-------+-----+-------------------------------------+
- * | a |   b   |  c  |                                     |
- * +---+-------+-----+-------------------------------------+
- * 
- * a = my_realloc(40);
- * +---+-------+-----+-------+-----------------------------+
- * |   |   b   |  c  |   a   |                             |
- * +---+-------+-----+-------+-----------------------------+
- *
- * my_free(b);
- * +-----------+-----+-------+-----------------------------+
- * |           |  c  |   a   |                             |
- * +-----------+-----+-------+-----------------------------+
- *
- * void *d = my_alloc(30);
- * +-----+-----+-----+-------+-----------------------------+
- * |  d  |     |  c  |   a   |                             |
- * +-----+-----+-----+-------+-----------------------------+
  */
 #ifndef MALLOC_H
 #define MALLOC_H
@@ -48,8 +20,6 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* include debugging helper functions */
-#define DEBUG
 /* if defined malloc, realloc, calloc and free are defined and the original
  * malloc functions can be replaced by compiling with
  *   gcc -fno-builtin-malloc
@@ -58,8 +28,6 @@
 
 /* Initial size of the heap, need to be a multiple of HEAP_ALIGNMENT */
 #define HEAP_INITIAL_SIZE 128
-/* If the heap size isn't enough it will grow by this factor */
-#define HEAP_GROW_FACTOR 2
 /* all block sizes will be a multiple of this value */
 #define HEAP_ALIGNMENT sizeof(uintptr_t)
 /* calculate the total size of the heap */
@@ -85,17 +53,14 @@
 /* block size (without header) */
 #define BLOCK_SIZE(block) ((block)->size & SIZE_MASK)
 
+/* pointer to the end of the block (to the first byte after the block) */
+#define BLOCK_END(blck) (void*)((uintptr_t)(blck)->block + BLOCK_SIZE(blck))
+
 /* 1 if block in use 0 if block is free */
 #define BLOCK_IN_USE(block) (((block)->size & IN_USE_MASK) >> (sizeof(uintptr_t)*8-1))
 
 /* 1 if block is free 0 if block in use */
 #define BLOCK_FREE(block) (1-BLOCK_IN_USE(block))
-
-/* pointer to the following block */
-#define BLOCK_NEXT(block) ((BlockHeader*)((uintptr_t)(block)+BLOCKHEADER_SIZE+BLOCK_SIZE(block)))
-
-/* check if block is below heap.end */
-#define BLOCK_IN_RANGE(block) ((void*)(block) < heap.end)
 
 /* calculate new size and remain the highest bit unchanged */
 #define NEW_SIZE(inUse, newSize) (newSize | (inUse * IN_USE_MASK))
@@ -112,8 +77,9 @@
  * The header used to manage allocated memory.
  */
 typedef struct _BlockHeader {
-    /* pointer to the previous block's header */ 
+    /* Blocks are organized as a double linked list */ 
     struct _BlockHeader *previous;
+    struct _BlockHeader *next;
     /* Size of the block *and* indicator if the block is in use or free.
      * The most significant bit is used to indicate if the block is
      * available (0) or in use (1).
@@ -145,7 +111,31 @@ void free(void *ptr);
 #endif
 
 
-#ifdef DEBUG
+#ifndef NDEBUG
+/**
+ * Print a message (needs to be exactly 10 character long) together with
+ * a pointer address to stdout.
+ * Only if NDEBUG is not set.
+ */
+#define PRINT_PTR(msg, ptr) do { \
+    write(STDOUT_FILENO, msg, 10); \
+    write(STDOUT_FILENO, "   ", 3); \
+    outputPtr(ptr); \
+    fsync(STDOUT_FILENO); \
+} while (0)
+#else
+#define PRINT_PTR(msg, ptr)
+#endif
+
+#ifndef NDEBUG
+/**
+ * Print a pointer address to stdout without any allocations.
+ *
+ * Used for debugging messages with PRINT_PTR() avoiding
+ * segmentation faults through infinite recursion.
+ */
+void outputPtr(void *ptr);
+
 /**
  * Print block information for debugging.
  *
