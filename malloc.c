@@ -1,6 +1,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/mman.h>
 #include "malloc.h"
 
 #ifndef NDEBUG
@@ -36,11 +37,14 @@ static BlockHeader *getLastBlock() {
  *         unsuccessful
  */
 static BlockHeader* increaseHeap(size_t minSize) {
+#define MMAP_PROT   PROT_READ|PROT_WRITE
+#define MMAP_FLAGS  MAP_ANONYMOUS|MAP_PRIVATE
     /* if heap is uninitialized initialize it */
     if (heap == NULL) {
         size_t size = minSize + BLOCKHEADER_SIZE;
         size = size > HEAP_INITIAL_SIZE ? size * 2 : HEAP_INITIAL_SIZE;
-        heap = sbrk(HEAP_INITIAL_SIZE);
+        size = ALIGN_TO(getpagesize(), size);
+        heap = mmap(0, size, MMAP_PROT, MMAP_FLAGS, -1, 0);
         if ((void*)heap == (void*)-1) {
             return NULL;
         }
@@ -55,19 +59,20 @@ static BlockHeader* increaseHeap(size_t minSize) {
     BlockHeader *lastBlock = getLastBlock();
     /* lastBlock != NULL because heap != NULL */
 
-    BlockHeader *newBlock = sbrk(minSize + BLOCKHEADER_SIZE);
+    size_t size = ALIGN_TO(getpagesize(), minSize + BLOCKHEADER_SIZE);
+    BlockHeader *newBlock = mmap(BLOCK_END(lastBlock), size, MMAP_PROT, MMAP_FLAGS, -1, 0);
     if ((void*)newBlock == (void*)-1) return NULL;
 
     /* if the last block is free and the new allocated memory is next to it
      * increase last block
      */
     if (BLOCK_END(lastBlock) == (void*)newBlock && BLOCK_FREE(lastBlock)) {
-        lastBlock->size += minSize + BLOCKHEADER_SIZE;
+        lastBlock->size += size;
         return lastBlock;
     }
 
     /* insert an empty block */
-    newBlock->size = minSize;
+    newBlock->size = size - BLOCKHEADER_SIZE;
     lastBlock->next = newBlock;
     newBlock->previous = lastBlock;
     newBlock->next = NULL;
@@ -263,7 +268,7 @@ void *my_realloc(void *ptr, size_t size) {
     }
     memcpy(newBlock->block, block->block, BLOCK_SIZE(block));
 
-    PRINT_PTR("realloc(m)", block->block);
+    PRINT_PTR("realloc(m)", newBlock->block);
 
     /* free old block */
     freeBlock(block);

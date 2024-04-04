@@ -67,8 +67,11 @@
 /* calculate new size and remain the highest bit unchanged */
 #define NEW_SIZE(inUse, newSize) (newSize | (inUse * IN_USE_MASK))
 
+/* the smallest multiple of alignment that is bigger or equal to size */
+#define ALIGN_TO(alignment, size) ((size) % alignment == 0 ? (size) : (size) + (alignment - (size)%alignment))
+
 /* calculate the next bigger number that is a multiple of HEAP_ALIGNMENT */
-#define ALIGN_SIZE(size) ((size) % HEAP_ALIGNMENT == 0 ? (size) : (size) + (HEAP_ALIGNMENT - (size)%HEAP_ALIGNMENT))
+#define ALIGN_SIZE(size) ALIGN_TO(HEAP_ALIGNMENT, size)
 
 /* get a BlockHeader pointer by a pointer to a memory slot */
 #define BLOCK_FROM_PTR(ptr) ((BlockHeader*)((uintptr_t)(ptr) - BLOCKHEADER_SIZE))
