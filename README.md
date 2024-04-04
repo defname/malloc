@@ -67,17 +67,7 @@ flag.
 
 It's work in progress and not made for productive use.
 
-You can also compile it as shared library:
-
-Make sure in the file ``malloc.h`` the line 
-```
-#define DEBUG
-```
-is commented out and
-```
-#define REPLACE_ORIGINAL_MALLOC
-```
-is not commented. Then compile with
+You can comile it as shared library with
 ```sh
 gcc -shared -o libmymalloc.so -fpic 
 ```
@@ -85,6 +75,11 @@ and run any program with
 ```
 LD_PRELOAD=./libmymalloc.so program
 ```
+A lot of real world programs will fail, because it's likely that they also use memory
+allocated by other functions than the three implemented here.
+
+Per default simple debug messages will be printed on every call. Turn it off
+by using the ``-DNDEBUG`` flag for compilation.
 
 
 ## TODO
